@@ -57,6 +57,14 @@ def write_bambi_string(new_priors, var_info):
 
 def from_bambi(fmodel, draws):
     module_name = fmodel.__module__
+    
+    # Validate module name to prevent arbitrary code execution
+    # Only allow modules that are part of the current script's namespace or trusted packages
+    allowed_prefixes = ('__main__', 'bambi', 'preliz', 'pymc', 'numpy', 'scipy')
+    if not any(module_name.startswith(prefix) for prefix in allowed_prefixes):
+        raise ValueError(f"Module '{module_name}' is not from a trusted source. "
+                        f"Only modules with prefixes {allowed_prefixes} are allowed.")
+    
     module = importlib.import_module(module_name)
 
     # Get the source code of the original function
