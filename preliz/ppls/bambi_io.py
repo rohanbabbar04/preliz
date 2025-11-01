@@ -57,6 +57,24 @@ def write_bambi_string(new_priors, var_info):
 
 def from_bambi(fmodel, draws):
     module_name = fmodel.__module__
+    
+    # Whitelist of trusted modules to prevent arbitrary code loading
+    allowed_modules = {
+        '__main__',
+        'bambi',
+        'bambi.models',
+        'bambi.priors',
+        'preliz',
+        'preliz.ppls',
+        'preliz.ppls.bambi_io'
+    }
+    
+    # Check if module name starts with any allowed prefix
+    allowed_prefixes = ('bambi', 'preliz', '__main__')
+    if not (module_name in allowed_modules or 
+            any(module_name.startswith(prefix) for prefix in allowed_prefixes)):
+        raise ValueError(f"Module '{module_name}' is not in the allowed modules list")
+    
     module = importlib.import_module(module_name)
 
     # Get the source code of the original function
