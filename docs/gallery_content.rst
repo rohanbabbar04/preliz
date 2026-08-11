@@ -580,6 +580,18 @@ Continuous Multivariate Distributions
       +++
       Multivariate Normal
 
+   .. grid-item-card::
+      :link: ./distributions/gallery/wishart.html
+      :text-align: center
+      :shadow: none
+      :class-card: example-gallery
+
+      .. image:: distributions/img/Wishart.png
+         :alt: Wishart
+
+      +++
+      Wishart
+
 Distribution Modifiers
 
 .. grid:: 1 2 3 3
