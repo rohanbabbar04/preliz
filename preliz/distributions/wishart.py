@@ -57,7 +57,6 @@ class Wishart(Continuous):
     def _update(self, nu, V):
         self.nu = np.float64(nu)
         self.V = np.asarray(V, dtype=np.float64)
-        print(self.nu, self.V)
         self.params = (self.nu, self.V)
         self.support = "positive_definite"
         self.params_support = ((self.V.shape[-1] - 1, np.inf), "positive_definite")
