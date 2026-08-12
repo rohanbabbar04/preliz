@@ -126,17 +126,17 @@ class Wishart(Continuous):
 
 
 @pytensor_jit(static_shapes={'V': (-1, )},
-              mode=get_mode("NUMBA").excluding("slogdet_specialization"))
+              mode=get_mode("NUMBA").excluding("slogdet_specialization")) # Excluding as it doesn't support ndim > 2.
 def ptd_pdf(x, nu, V):
     return ptd_wishart.pdf(x, nu, V)
 
 @pytensor_jit(static_shapes={'V': (-1, )},
-              mode=get_mode("NUMBA").excluding("slogdet_specialization"))
+              mode=get_mode("NUMBA").excluding("slogdet_specialization")) # Excluding as it doesn't support ndim > 2.
 def ptd_logpdf(x, nu, V):
     return ptd_wishart.logpdf(x, nu, V)
 
 @pytensor_jit(static_shapes={'V': (-1, )},
-              mode=get_mode("NUMBA").excluding("slogdet_specialization"))
+              mode=get_mode("NUMBA").excluding("slogdet_specialization")) # Excluding as it doesn't support ndim > 2.
 def ptd_entropy(nu, V):
     return ptd_wishart.entropy(nu, V)
 
