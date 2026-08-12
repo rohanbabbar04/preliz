@@ -1,4 +1,6 @@
 import numpy as np
+import pytensor.tensor as pt
+from pytensor.compile import get_mode
 from pytensor_distributions import wishart as ptd_wishart
 
 from preliz.distributions.continuous_multivariate import Continuous
@@ -93,7 +95,6 @@ class Wishart(Continuous):
         nu_estimates = 2 * (diag_mean / diag_sigma) ** 2
         nu = np.mean(nu_estimates)
         V = mean / nu
-        print(V, nu)
         self._update(nu, V)
 
     def _fit_mle(self, sample):
@@ -124,34 +125,42 @@ class Wishart(Continuous):
         )
 
 
-@pytensor_jit(constants=("V", "nu", "x"))
+@pytensor_jit(static_shapes={'V': (-1, )},
+              mode=get_mode("NUMBA").excluding("slogdet_specialization"))
 def ptd_pdf(x, nu, V):
     return ptd_wishart.pdf(x, nu, V)
 
-@pytensor_jit(constants=("V", "nu", "x"))
+@pytensor_jit(static_shapes={'V': (-1, )},
+              mode=get_mode("NUMBA").excluding("slogdet_specialization"))
 def ptd_logpdf(x, nu, V):
     return ptd_wishart.logpdf(x, nu, V)
 
-@pytensor_jit(constants=("V", "nu"))
+@pytensor_jit(static_shapes={'V': (-1, )},
+              mode=get_mode("NUMBA").excluding("slogdet_specialization"))
 def ptd_entropy(nu, V):
     return ptd_wishart.entropy(nu, V)
 
-@pytensor_jit(constants=("V", "nu"))
+@pytensor_jit(static_shapes={'V': (-1, )})
 def ptd_mean(nu, V):
     return ptd_wishart.mean(nu, V)
 
-@pytensor_jit(constants=("V", "nu"))
+@pytensor_jit(static_shapes={'V': (-1, )})
 def ptd_mode(nu, V):
     return ptd_wishart.mode(nu, V)
 
-@pytensor_jit(constants=("V", "nu"))
+@pytensor_jit(static_shapes={'V': (-1, )})
 def ptd_var(nu, V):
     return ptd_wishart.var(nu, V)
 
-@pytensor_jit(constants=("V", "nu"))
+@pytensor_jit(static_shapes={'V': (-1, )})
 def ptd_std(nu, V):
     return ptd_wishart.std(nu, V)
 
-@pytensor_rng_jit(constants=("V", "nu"))
-def ptd_rvs(nu, V, size, rng):
-    return ptd_wishart.rvs(nu, V, size=size, random_state=rng)
+@pytensor_rng_jit(static_shapes={'V': (-1, )})
+def ptd_rvs(nu, V, size=None, rng=None):
+    if size is None:
+        return ptd_wishart.rvs(nu, V, size=None, random_state=rng)
+    samples = ptd_wishart.rvs(nu, V, size=pt.prod(size, dtype="int64"), random_state=rng)
+    p = V.type.shape[-1]
+    output_shape = pt.concatenate([size, pt.as_tensor([p, p], dtype="int64")])
+    return pt.reshape(samples, output_shape)

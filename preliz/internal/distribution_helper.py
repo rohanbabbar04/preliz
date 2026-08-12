@@ -1,12 +1,12 @@
-import inspect
 import re
 from functools import wraps
+from inspect import signature as _inspect_signature
 from sys import modules
 
 import numpy as np
 from pytensor import function
 from pytensor.compile import Function, In
-from pytensor.tensor import constant, tensor
+from pytensor.tensor import tensor
 from pytensor.tensor.random.type import random_generator_type
 
 eps = np.finfo(float).eps
@@ -106,162 +106,144 @@ def num_kurtosis(dist):
         return np.trapezoid(((x_values - mean) / std) ** 4 * pdf, x_values) - 3
 
 
-def pytensor_jit(func=None, *, constants=(), **compile_kwargs):
+def pytensor_jit(func=None, static_shapes=None, **compile_kwargs):
     # trust_input can be a problem if the user passes aliased inputs
     # (including the same values twice)
     # But it really reduces the overhead!
     # Removing inplace rewrites would make this safe always (I think)
-    compile_kwargs.setdefault("trust_input", True)
-    compile_kwargs.setdefault("mode", "NUMBA")
-    compile_kwargs.setdefault("on_unused_input", "ignore")
 
     def decorator(func):
-        parameter_names = tuple(inspect.signature(func).parameters)
-        constant_positions = {parameter_names.index(name) for name in constants}
-        signature_to_function = {}
+        compile_kwargs.setdefault("trust_input", True)
+        compile_kwargs.setdefault("mode", "NUMBA")
+        compile_kwargs.setdefault("on_unused_input", "ignore")
+
+        signature_to_function: dict[tuple, Function] = {}
+        static_shapes_ = static_shapes or {}
 
         @wraps(func)
         def inner_func(*args, signature_to_function=signature_to_function):
-            args = [np.asarray(a) for a in args]
-            # Define signature for constant and compile func arguments
+            args = tuple(np.asarray(a) for a in args)
+            names = list(_inspect_signature(func).parameters)
+            local_static_shapes = {name: {axis if axis >= 0 else ndim + axis
+                                          for axis in static_shapes_.get(name, ())}
+                                   for name, ndim in zip(names, (a.ndim for a in args))
+                                   }
             signature = tuple(
-                (a.tobytes(), a.shape, a.dtype,) if i in constant_positions
-                else (tuple(s == 1 for s in a.shape), a.dtype,)
-                for i, a in enumerate(args)
+                (tuple(
+                    a.shape[i] if i in local_static_shapes.get(name, ()) else (s == 1)
+                    for i, s in enumerate(a.shape)
+                ), a.dtype)
+                for name, a in zip(names, args)
             )
-
             try:
-                compiled_func, runtime_positions = signature_to_function[signature]
-                runtime_args = [args[i] for i in runtime_positions]
-                return compiled_func(*runtime_args)
+                return signature_to_function[signature](*args)
             except KeyError:
                 pass
 
-            symbolic_args = []
-
-            for i, a in enumerate(args):
-                if i in constant_positions:
-                    # Embed a as a constant in the graph.
-                    symbolic_args.append(constant(a))
-                else:
-                    # Create a symbolic runtime input with the same
-                    # broadcastability pattern and dtype as a.
-                    bcast_pattern = tuple(s == 1 for s in a.shape)
-                    symbolic_args.append(
-                        tensor(shape=tuple(1 if b else None for b in bcast_pattern),
-                               dtype=a.dtype,))
-
+            symbolic_args = [
+                tensor(shape=tuple(
+                    a.shape[i] if i in local_static_shapes.get(name, ())
+                    else (1 if bcast_pattern[i] else None)
+                    for i in range(a.ndim)), dtype=dtype,
+                )
+                for name, a, (bcast_pattern, dtype) in zip(names, args, signature)
+            ]
             symbolic_out = func(*symbolic_args)
-            runtime_positions = [i for i in range(len(args)) if i not in constant_positions]
-
-            runtime_symbolic_args = [symbolic_args[i] for i in runtime_positions]
-
-            compiled_func = function(
-                runtime_symbolic_args,
+            signature_to_function[signature] = compiled_func = function(
+                symbolic_args,
                 symbolic_out,
                 **compile_kwargs,
             )
-
-            signature_to_function[signature] = (
-                compiled_func,
-                runtime_positions,
-            )
-
-            runtime_args = [args[i] for i in runtime_positions]
-
-            return compiled_func(*runtime_args)
-
+            return compiled_func(*args)
         return inner_func
 
-    if func is not None:
+    if func is None:
+        return decorator
+    else:
         return decorator(func)
-    return decorator
 
 
-def pytensor_rng_jit(_func=None, *, constants=(), **compile_kwargs):
+def pytensor_rng_jit(_func=None, static_shapes=None, **compile_kwargs):
     """Compile pytensor function with RNG on demand."""
 
     def decorator(func):
         compile_kwargs.setdefault("trust_input", True)
         compile_kwargs.setdefault("mode", "NUMBA")
-        parameter_names = tuple(inspect.signature(func).parameters)
-        constant_positions = {parameter_names.index(name) for name in constants}
+
         signature_to_function: dict[tuple, Function] = {}
+        static_shapes_ = static_shapes or {}
 
         @wraps(func)
         def inner_func(*args, size, rng, signature_to_function=signature_to_function):
             args = tuple(np.asarray(a) for a in args)
-            if size is None:
-                size_signature = None
-                size_is_scalar = False
-            elif isinstance(size, (int, np.integer)):
-                size = int(size)
-                size_signature = (size,)
-                size_is_scalar = True
-            else:
-                size = np.asarray(size, dtype="int64")
-                size_signature = tuple(size)
-                size_is_scalar = False
 
-            # Define signatures for constant positions and runtime positions
-            signature = (*(
-                    (a.tobytes(), a.shape, a.dtype) if i in constant_positions
-                    else (tuple(s == 1 for s in a.shape), a.dtype,)
-                    for i, a in enumerate(args)
-                ), size_signature,)
+            names = list(_inspect_signature(func).parameters)
+
+            local_static_shapes = {name: {axis if axis >= 0 else ndim + axis
+                                          for axis in static_shapes_.get(name, ())}
+                                   for name, ndim in zip(names, (a.ndim for a in args))
+                                   }
+
             try:
-                compiled_func, runtime_positions = signature_to_function[signature]
-                runtime_args = tuple(args[i] for i in runtime_positions)
                 if size is None:
-                    return compiled_func(*runtime_args, rng)
-                return compiled_func(*runtime_args, size, rng)
+                    signature = (*((
+                        tuple(
+                            a.shape[i] if i in local_static_shapes.get(name, ()) else (s == 1)
+                            for i, s in enumerate(a.shape)
+                        ), a.dtype)
+                        for name, a in zip(names, args)
+                    ),None)
+                    return signature_to_function[signature](*args, rng)
+                else:
+                    if isinstance(size, (int | np.integer)):
+                        size = (size,)
+                    size = np.asarray(size, dtype="int64")
+                    signature = (*((tuple(
+                        a.shape[i] if i in local_static_shapes.get(name, ()) else (s == 1)
+                        for i, s in enumerate(a.shape)
+                    ), a.dtype,
+                    )
+                        for name, a in zip(names, args)), tuple(size),
+                    )
+                    return signature_to_function[signature](*args, size, rng)
+
             except KeyError:
                 pass
-            symbolic_args = []
-            for i, a in enumerate(args):
-                if i in constant_positions:
-                    # Embed a as a constant
-                    symbolic_args.append(constant(a))
-                else:
-                    # Embed symbolic runtime with the bcast_pattern
-                    bcast_pattern = tuple(s == 1 for s in a.shape)
-                    symbolic_args.append(
-                        tensor(shape=tuple(1 if b else None for b in bcast_pattern), dtype=a.dtype)
-                    )
 
-            if size is None:
-                symbolic_size = None
-            elif size_is_scalar:
-                symbolic_size = tensor(shape=(), dtype="int64", name="size",)
-            else:
-                symbolic_size = tensor(shape=(len(size),), dtype="int64", name="size",)
-            symbolic_rng = random_generator_type("rng")
-            symbolic_out = func(
-                *symbolic_args,
-                size=symbolic_size,
-                rng=symbolic_rng,
+            symbolic_args = [
+                tensor(
+                    shape=tuple(
+                        a.shape[i] if i in local_static_shapes.get(name, ())
+                        else (1 if bcast_pattern[i] else None)
+                        for i in range(a.ndim)
+                    ),
+                    dtype=dtype,
+                )
+                for name, a, (bcast_pattern, dtype) in zip(
+                    names, args, signature[:-1]
+                )
+            ]
+
+            symbolic_size = (
+                None if size is None else tensor(shape=(len(size),), dtype="int64", name="size")
             )
+
+            symbolic_rng = random_generator_type("rng")
+            symbolic_out = func(*symbolic_args, size=symbolic_size, rng=symbolic_rng)
 
             # We allow PyTensor to modify the RNG
             mutable_rng = In(symbolic_rng, mutable=True)
-            runtime_positions = [i for i in range(len(args)) if i not in constant_positions]
-            runtime_symbolic_args = [symbolic_args[i] for i in runtime_positions]
-            if size is None:
-                symbolic_inputs = [*runtime_symbolic_args, mutable_rng,]
-            else:
-                symbolic_inputs = [*runtime_symbolic_args, symbolic_size, mutable_rng]
 
-            compiled_func = function(
+            if size is None:
+                symbolic_inputs = [*symbolic_args, mutable_rng]
+            else:
+                symbolic_inputs = [*symbolic_args, symbolic_size, mutable_rng,]
+            signature_to_function[signature] = compiled_func = function(
                 symbolic_inputs,
                 symbolic_out,
                 **compile_kwargs,
             )
-            signature_to_function[signature] = (compiled_func, runtime_positions)
-            runtime_args = [args[i] for i in runtime_positions]
-            if size is None:
-                return compiled_func(*runtime_args, rng)
-            return compiled_func(*runtime_args, size, rng)
-
+            return compiled_func(*args, rng) if size is None else compiled_func(*args, size, rng)
         return inner_func
 
     if _func is None:

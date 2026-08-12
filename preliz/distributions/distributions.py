@@ -52,21 +52,16 @@ class Distribution:
         """Return a string of parameters, or empty string if not frozen."""
         if not self.is_frozen:
             return ""
-        def fmt(v):
-            v = np.asarray(v)
-            if np.isscalar(v) or v.ndim == 0:
-                return f"{v:.3g}"
-            elif v.ndim == 1:
-                return "[" + ", ".join(f"{vi:.3g}" for vi in v) + "]"
-            elif v.ndim == 2:
-                rows = ", ".join(
-                    "[" + ", ".join(f"{vi:.3g}" for vi in row) + "]"
-                    for row in v
-                )
-                return f"[{rows}]"
-            else:
-                return "[" + ", ".join(fmt(x) for x in v) + "]"
-        return ", ".join(f"{n}={fmt(v)}" for n, v in zip(self.param_names, self.params)).strip(", ")
+        return "".join(
+            (
+                f"{n}={v:.3g}, "
+                if np.isscalar(v) or np.ndim(v) == 0
+                else f"{n}=["
+                + "".join(f"{vi:.3g}, " for vi in np.atleast_1d(v)).strip(", ")
+                + "], "
+            )
+            for n, v in zip(self.param_names, self.params)
+        ).strip(", ")
 
     def __repr__(self):
         name = self._get_name()
