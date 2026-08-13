@@ -51,6 +51,7 @@ from preliz.distributions import (
     VonMises,
     Wald,
     Weibull,
+    Wishart,
     ZeroInflatedNegativeBinomial,
     ZeroInflatedPoisson,
 )
@@ -97,6 +98,7 @@ def multivariates():
         (VonMises, (0, 1000)),
         (Wald, (1, 1)),
         (Weibull, (2, 1)),
+        (Wishart, (5, np.array([[2.0, 0.5], [0.5, 1.0]]))),
         (Bernoulli, (0.8,)),
         (BetaBinomial, (1, 1, 10)),
         (Binomial, (2, 0.5)),
@@ -136,7 +138,8 @@ def test_moments(distribution, params):
         tol = 0
     assert_almost_equal(dist.mean(), dist_.mean(), tol)
     assert_almost_equal(dist.std(), dist_.std(), tol)
-    assert_almost_equal(params, dist_.params, 0)
+    for p, _p in zip(params, dist_.params):
+        assert_almost_equal(p, _p, 0)
 
 
 @pytest.mark.parametrize(

@@ -44,6 +44,7 @@ from preliz import (
     VonMises,
     Wald,
     Weibull,
+    Wishart,
     ZeroInflatedBinomial,
     ZeroInflatedNegativeBinomial,
     ZeroInflatedPoisson,
@@ -369,3 +370,48 @@ def test_match_scipy(p_dist, sp_dist, p_params, sp_params):
         expected_mode = extended_vals[np.argmax(finite_expected_pdf)]
     actual_mode = preliz_dist.mode()
     assert_almost_equal(actual_mode, expected_mode, decimal=0)
+
+
+
+@pytest.mark.parametrize(
+    "p_dist, sp_dist, p_params, sp_params",
+    [
+        (
+            Wishart,
+            stats.wishart,
+            {"nu": 5, "V": np.array([[2.0, 0.5], [0.5, 1.0]])},
+            {"df": 5, "scale": np.array([[2.0, 0.5], [0.5, 1.0]])},
+        )
+    ]
+)
+def test_match_scipy_wishart(p_dist, sp_dist, p_params, sp_params):
+    preliz_dist = p_dist(**p_params)
+    scipy_dist = sp_dist(**sp_params)
+
+    actual_entropy = preliz_dist.entropy()
+    expected_entropy = scipy_dist.entropy()
+    assert_almost_equal(actual_entropy, expected_entropy, decimal=4)
+
+    rng = np.random.default_rng(1)
+    actual_rvs = preliz_dist.rvs(20000, random_state=rng)
+    expected_rvs = scipy_dist.rvs(20000, random_state=rng)
+    assert_almost_equal(actual_rvs.mean(axis=0), expected_rvs.mean(axis=0), decimal=0)
+    assert_almost_equal(actual_rvs.std(axis=0), expected_rvs.std(axis=0), decimal=0)
+    extended_vals = actual_rvs
+
+    actual_pdf = preliz_dist.pdf(extended_vals)
+    expected_pdf = scipy_dist.pdf(np.moveaxis(extended_vals, 0, -1))
+    assert_almost_equal(actual_pdf, expected_pdf, decimal=4)
+    actual_logpdf = preliz_dist.logpdf(extended_vals)
+    expected_logpdf = scipy_dist.logpdf(np.moveaxis(extended_vals, 0, -1))
+    assert_almost_equal(actual_logpdf, expected_logpdf, decimal=4)
+
+    actual_mean = preliz_dist.mean()
+    expected_mean = scipy_dist.mean()
+    assert_almost_equal(actual_mean, expected_mean)
+    actual_mode = preliz_dist.mode()
+    expected_mode = scipy_dist.mode()
+    assert_almost_equal(actual_mode, expected_mode)
+    actual_var = preliz_dist.var()
+    expected_var = np.diag(scipy_dist.var())
+    assert_almost_equal(actual_var, expected_var)

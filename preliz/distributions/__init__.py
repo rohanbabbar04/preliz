@@ -45,6 +45,7 @@ from preliz.distributions.uniform import Uniform
 from preliz.distributions.vonmises import VonMises
 from preliz.distributions.wald import Wald
 from preliz.distributions.weibull import Weibull
+from preliz.distributions.wishart import Wishart
 from preliz.distributions.zi_binomial import ZeroInflatedBinomial
 from preliz.distributions.zi_negativebinomial import ZeroInflatedNegativeBinomial
 from preliz.distributions.zi_poisson import ZeroInflatedPoisson
@@ -99,7 +100,7 @@ all_discrete = [
     ZeroInflatedPoisson,
 ]
 
-all_continuous_multivariate = [Dirichlet, MvNormal]
+all_continuous_multivariate = [Dirichlet, MvNormal, Wishart]
 
 all_modifiers = [Mixture, Truncated, Censored, Hurdle]
 

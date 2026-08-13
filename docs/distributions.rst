@@ -101,6 +101,9 @@ Distributions
 .. automodule:: preliz.distributions.weibull
    :members:
 
+.. automodule:: preliz.distributions.wishart
+   :members:
+
 .. automodule:: preliz.distributions.continuous
    :members:
 
